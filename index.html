@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Simulateur Auditif Corrigé</title>
+  <title>Simulateur Auditif Corrigé - V2</title>
   <style>
     body { font-family: sans-serif; margin: 20px; background-color: #f9f9f9; }
     .sliders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
@@ -14,7 +14,7 @@
 </head>
 <body>
 
-<h1>Simulateur Auditif Corrigé</h1>
+<h1>Simulateur Auditif Corrigé - V2</h1>
 <div class="sliders">
   <div class="slider-block"><label>250 Hz<br><input type="range" min="0" max="60" value="0" id="f250"></label><div id="v250">0 dB</div></div>
   <div class="slider-block"><label>500 Hz<br><input type="range" min="0" max="60" value="0" id="f500"></label><div id="v500">0 dB</div></div>
@@ -33,6 +33,7 @@
 
 <button onclick="initAndPlay('normal')">Écoute normale</button>
 <button onclick="initAndPlay('filtered')">Écoute simulée</button>
+<button onclick="togglePlayPause()">Play/Pause</button>
 
 <canvas id="visualizer" width="800" height="100"></canvas>
 <div id="log">Console de diagnostic...</div>
@@ -43,6 +44,11 @@ let audioContext;
 let selectedAudioUrl = document.getElementById('audioSelector').value;
 let currentSource = null;
 let analyser, canvas, ctx, dataArray, bufferLength;
+let playing = false;
+let startTime = 0;
+let pausedAt = 0;
+let currentBuffer = null;
+let currentMode = 'normal';
 
 freqs.forEach(f => {
   document.getElementById('f' + f).addEventListener('input', () => {
@@ -51,7 +57,7 @@ freqs.forEach(f => {
 });
 
 function log(msg) {
-  document.getElementById('log').textContent += "\n" + msg;
+  document.getElementById('log').textContent += "\\n" + msg;
 }
 
 function changeAudio(file) {
@@ -65,12 +71,15 @@ function stopAudio() {
     try { currentSource.stop(); } catch (e) {}
     currentSource.disconnect();
     currentSource = null;
+    playing = false;
+    pausedAt = 0;
     log("Lecture stoppée.");
   }
 }
 
 async function initAndPlay(mode) {
   stopAudio();
+  currentMode = mode;
   try {
     if (!audioContext || audioContext.state === 'closed') {
       audioContext = new AudioContext();
@@ -88,55 +97,75 @@ async function initAndPlay(mode) {
 
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
     log("Audio décodé.");
+    currentBuffer = audioBuffer;
 
-    const source = audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    currentSource = source;
-
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    bufferLength = analyser.frequencyBinCount;
-    dataArray = new Uint8Array(bufferLength);
-
-    canvas = document.getElementById("visualizer");
-    ctx = canvas.getContext("2d");
-
-    if (mode === 'filtered') {
-      const filters = freqs.map(f => {
-        const gain = -parseFloat(document.getElementById('f' + f).value);
-        const filter = audioContext.createBiquadFilter();
-        filter.type = 'peaking';
-        filter.frequency.value = f;
-        filter.Q.value = 1.5;
-        filter.gain.value = -Math.min(gain, 60);
-        return filter;
-      });
-
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = 1;
-
-      filters.reduce((prev, curr) => {
-        prev.connect(curr);
-        return curr;
-      });
-
-      filters[filters.length - 1].connect(gainNode);
-      gainNode.connect(analyser);
-      analyser.connect(audioContext.destination);
-      source.connect(filters[0]);
-
-      log("Connexion avec filtres appliqués.");
-    } else {
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-      log("Connexion en mode normal.");
-    }
-
-    source.start();
-    log("Lecture démarrée.");
-    visualize();
+    playAudio(currentBuffer, currentMode);
   } catch (e) {
     log("Erreur : " + e.message);
+  }
+}
+
+function playAudio(buffer, mode) {
+  stopAudio();
+  const source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  currentSource = source;
+
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 2048;
+  bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+  canvas = document.getElementById("visualizer");
+  ctx = canvas.getContext("2d");
+
+  if (mode === 'filtered') {
+    const filters = freqs.map(f => {
+      const lossDb = parseFloat(document.getElementById('f' + f).value);
+      const filter = audioContext.createBiquadFilter();
+      filter.type = 'peaking';
+      filter.frequency.value = f;
+      filter.Q.value = 1.5;
+      filter.gain.value = -Math.min(lossDb, 60);  // simulate loss
+      return filter;
+    });
+
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 1;
+
+    filters.reduce((prev, curr) => {
+      prev.connect(curr);
+      return curr;
+    });
+
+    filters[filters.length - 1].connect(gainNode);
+    gainNode.connect(analyser);
+    analyser.connect(audioContext.destination);
+    source.connect(filters[0]);
+
+    log("Connexion avec filtres appliqués.");
+  } else {
+    source.connect(analyser);
+    analyser.connect(audioContext.destination);
+    log("Connexion en mode normal.");
+  }
+
+  source.start(0, pausedAt);
+  startTime = audioContext.currentTime - pausedAt;
+  playing = true;
+  log("Lecture démarrée.");
+  visualize();
+}
+
+function togglePlayPause() {
+  if (!currentBuffer || !audioContext) return;
+
+  if (playing) {
+    pausedAt = audioContext.currentTime - startTime;
+    stopAudio();
+    log("Lecture mise en pause à " + pausedAt.toFixed(2) + " sec.");
+  } else {
+    log("Reprise de la lecture à " + pausedAt.toFixed(2) + " sec.");
+    playAudio(currentBuffer, currentMode);
   }
 }
 
