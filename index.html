@@ -2,21 +2,18 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Simulateur de Perte Auditive</title>
+  <title>Simulateur Auditif - Diagnostic</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f4; }
-    h1 { margin-bottom: 10px; }
-    .sliders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
+    body { font-family: sans-serif; margin: 20px; background-color: #f9f9f9; }
+    .sliders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
     .slider-block { background: #fff; padding: 10px; border: 1px solid #ccc; text-align: center; }
-    input[type=range] { width: 100%; }
-    button { padding: 10px 20px; font-size: 16px; margin-right: 10px; margin-top: 10px; }
-    select { font-size: 16px; padding: 5px; margin-bottom: 15px; }
+    canvas { background: #222; display: block; width: 100%; height: 100px; margin-top: 20px; }
+    #log { background: #eee; padding: 10px; font-family: monospace; white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc; }
   </style>
 </head>
 <body>
 
-<h1>Simulateur de Perte Auditive</h1>
-<p>Réglez les seuils d'audition (en dB HL) pour chaque fréquence :</p>
+<h1>Simulateur Auditif - Mode Diagnostic</h1>
 <div class="sliders">
   <div class="slider-block"><label>250 Hz<br><input type="range" min="0" max="100" value="0" id="f250"></label><div id="v250">0 dB</div></div>
   <div class="slider-block"><label>500 Hz<br><input type="range" min="0" max="100" value="0" id="f500"></label><div id="v500">0 dB</div></div>
@@ -26,21 +23,27 @@
   <div class="slider-block"><label>8000 Hz<br><input type="range" min="0" max="100" value="0" id="f8000"></label><div id="v8000">0 dB</div></div>
 </div>
 
-<label for="audioSelector">Choisissez un extrait sonore :</label>
-<select id="audioSelector" onchange="changeAudio(this.value)">
-  <option value="https://www2.cs.uic.edu/~i101/SoundFiles/taunt.mp3">Voix de femme - calme</option>
-  <option value="https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.mp3">Voix dans un restaurant</option>
-  <option value="https://www2.cs.uic.edu/~i101/SoundFiles/BabyElephantWalk60.mp3">Voix d'enfant - calme</option>
-</select><br>
+<p>
+  <label>Extrait sonore :</label>
+  <select id="audioSelector" onchange="changeAudio(this.value)">
+    <option value="https://www2.cs.uic.edu/~i101/SoundFiles/taunt.mp3">Voix de femme - calme</option>
+    <option value="https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.mp3">Voix dans un restaurant</option>
+    <option value="https://www2.cs.uic.edu/~i101/SoundFiles/BabyElephantWalk60.mp3">Voix d'enfant - calme</option>
+  </select>
+</p>
 
 <button onclick="initAndPlay('normal')">Écoute normale</button>
 <button onclick="initAndPlay('filtered')">Écoute simulée</button>
+
+<canvas id="visualizer" width="800" height="100"></canvas>
+<div id="log">Console de diagnostic...</div>
 
 <script>
 const freqs = [250, 500, 1000, 2000, 4000, 8000];
 let audioContext;
 let selectedAudioUrl = document.getElementById('audioSelector').value;
 let currentSource = null;
+let analyser, canvas, ctx, dataArray, bufferLength;
 
 freqs.forEach(f => {
   document.getElementById('f' + f).addEventListener('input', () => {
@@ -48,9 +51,14 @@ freqs.forEach(f => {
   });
 });
 
+function log(msg) {
+  document.getElementById('log').textContent += "\n" + msg;
+}
+
 function changeAudio(file) {
   selectedAudioUrl = file;
   stopAudio();
+  log("Audio sélectionné : " + file);
 }
 
 function stopAudio() {
@@ -58,47 +66,95 @@ function stopAudio() {
     try { currentSource.stop(); } catch (e) {}
     currentSource.disconnect();
     currentSource = null;
+    log("Lecture stoppée.");
   }
 }
 
 async function initAndPlay(mode) {
   stopAudio();
-  if (!audioContext || audioContext.state === 'closed') {
-    audioContext = new AudioContext();
-  } else if (audioContext.state === 'suspended') {
-    await audioContext.resume();
+  try {
+    if (!audioContext || audioContext.state === 'closed') {
+      audioContext = new AudioContext();
+      log("AudioContext créé.");
+    }
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+      log("AudioContext repris.");
+    }
+
+    log("Téléchargement audio...");
+    const response = await fetch(selectedAudioUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    log("Audio téléchargé.");
+
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    log("Audio décodé.");
+
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    currentSource = source;
+
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+
+    canvas = document.getElementById("visualizer");
+    ctx = canvas.getContext("2d");
+
+    if (mode === 'normal') {
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      log("Connexion en mode normal.");
+    } else {
+      const filters = freqs.map(f => {
+        const gain = -parseFloat(document.getElementById('f' + f).value);
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = f;
+        filter.Q.value = 1.5;
+        filter.gain.value = gain;
+        return filter;
+      });
+      filters.reduce((prev, curr) => {
+        prev.connect(curr);
+        return curr;
+      });
+      filters[filters.length - 1].connect(analyser);
+      analyser.connect(audioContext.destination);
+      source.connect(filters[0]);
+      log("Connexion avec filtres appliqués.");
+    }
+
+    source.start();
+    log("Lecture démarrée.");
+    visualize();
+  } catch (e) {
+    log("Erreur : " + e.message);
   }
+}
 
-  const response = await fetch(selectedAudioUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  const source = audioContext.createBufferSource();
-  source.buffer = audioBuffer;
-  currentSource = source;
-
-  if (mode === 'normal') {
-    source.connect(audioContext.destination);
-  } else {
-    const filters = freqs.map(f => {
-      const gain = -parseFloat(document.getElementById('f' + f).value);
-      const filter = audioContext.createBiquadFilter();
-      filter.type = 'peaking';
-      filter.frequency.value = f;
-      filter.Q.value = 1.5;
-      filter.gain.value = gain;
-      return filter;
-    });
-    filters.reduce((prev, curr) => {
-      prev.connect(curr);
-      return curr;
-    });
-    filters[filters.length - 1].connect(audioContext.destination);
-    source.connect(filters[0]);
+function visualize() {
+  requestAnimationFrame(visualize);
+  if (!analyser) return;
+  analyser.getByteTimeDomainData(dataArray);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#0f0';
+  ctx.beginPath();
+  let sliceWidth = canvas.width / bufferLength;
+  let x = 0;
+  for (let i = 0; i < bufferLength; i++) {
+    let v = dataArray[i] / 128.0;
+    let y = v * canvas.height / 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    x += sliceWidth;
   }
-
-  source.start();
+  ctx.lineTo(canvas.width, canvas.height / 2);
+  ctx.stroke();
 }
 </script>
-
 </body>
 </html>
