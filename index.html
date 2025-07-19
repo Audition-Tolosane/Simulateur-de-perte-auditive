@@ -2,35 +2,34 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Simulateur Auditif - Diagnostic</title>
+  <title>Simulateur Auditif Corrigé</title>
   <style>
     body { font-family: sans-serif; margin: 20px; background-color: #f9f9f9; }
     .sliders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
     .slider-block { background: #fff; padding: 10px; border: 1px solid #ccc; text-align: center; }
     canvas { background: #222; display: block; width: 100%; height: 100px; margin-top: 20px; }
     #log { background: #eee; padding: 10px; font-family: monospace; white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc; }
+    select, button { margin-top: 15px; padding: 5px; font-size: 16px; }
   </style>
 </head>
 <body>
 
-<h1>Simulateur Auditif - Mode Diagnostic</h1>
+<h1>Simulateur Auditif Corrigé</h1>
 <div class="sliders">
-  <div class="slider-block"><label>250 Hz<br><input type="range" min="0" max="100" value="0" id="f250"></label><div id="v250">0 dB</div></div>
-  <div class="slider-block"><label>500 Hz<br><input type="range" min="0" max="100" value="0" id="f500"></label><div id="v500">0 dB</div></div>
-  <div class="slider-block"><label>1000 Hz<br><input type="range" min="0" max="100" value="0" id="f1000"></label><div id="v1000">0 dB</div></div>
-  <div class="slider-block"><label>2000 Hz<br><input type="range" min="0" max="100" value="0" id="f2000"></label><div id="v2000">0 dB</div></div>
-  <div class="slider-block"><label>4000 Hz<br><input type="range" min="0" max="100" value="0" id="f4000"></label><div id="v4000">0 dB</div></div>
-  <div class="slider-block"><label>8000 Hz<br><input type="range" min="0" max="100" value="0" id="f8000"></label><div id="v8000">0 dB</div></div>
+  <div class="slider-block"><label>250 Hz<br><input type="range" min="0" max="60" value="0" id="f250"></label><div id="v250">0 dB</div></div>
+  <div class="slider-block"><label>500 Hz<br><input type="range" min="0" max="60" value="0" id="f500"></label><div id="v500">0 dB</div></div>
+  <div class="slider-block"><label>1000 Hz<br><input type="range" min="0" max="60" value="0" id="f1000"></label><div id="v1000">0 dB</div></div>
+  <div class="slider-block"><label>2000 Hz<br><input type="range" min="0" max="60" value="0" id="f2000"></label><div id="v2000">0 dB</div></div>
+  <div class="slider-block"><label>4000 Hz<br><input type="range" min="0" max="60" value="0" id="f4000"></label><div id="v4000">0 dB</div></div>
+  <div class="slider-block"><label>8000 Hz<br><input type="range" min="0" max="60" value="0" id="f8000"></label><div id="v8000">0 dB</div></div>
 </div>
 
-<p>
-  <label>Extrait sonore :</label>
-  <select id="audioSelector" onchange="changeAudio(this.value)">
-    <option value="https://www2.cs.uic.edu/~i101/SoundFiles/taunt.mp3">Voix de femme - calme</option>
-    <option value="https://www2.cs.uic.edu/~i101/SoundFiles/CantinaBand3.mp3">Voix dans un restaurant</option>
-    <option value="voix enfant.mp3">Voix d'enfant - calme</option>
-  </select>
-</p>
+<label>Fichier audio local :</label>
+<select id="audioSelector" onchange="changeAudio(this.value)">
+  <option value="voice_calm_fr.mp3">Voix de femme calme (français)</option>
+  <option value="restaurant_fr.mp3">Ambiance restaurant (français)</option>
+  <option value="voix enfant.mp3">Voix d'enfant calme (français)</option>
+</select><br>
 
 <button onclick="initAndPlay('normal')">Écoute normale</button>
 <button onclick="initAndPlay('filtered')">Écoute simulée</button>
@@ -102,28 +101,35 @@ async function initAndPlay(mode) {
     canvas = document.getElementById("visualizer");
     ctx = canvas.getContext("2d");
 
-    if (mode === 'normal') {
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-      log("Connexion en mode normal.");
-    } else {
+    if (mode === 'filtered') {
       const filters = freqs.map(f => {
         const gain = -parseFloat(document.getElementById('f' + f).value);
         const filter = audioContext.createBiquadFilter();
         filter.type = 'peaking';
         filter.frequency.value = f;
         filter.Q.value = 1.5;
-        filter.gain.value = gain;
+        filter.gain.value = -Math.min(gain, 60);
         return filter;
       });
+
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 1;
+
       filters.reduce((prev, curr) => {
         prev.connect(curr);
         return curr;
       });
-      filters[filters.length - 1].connect(analyser);
+
+      filters[filters.length - 1].connect(gainNode);
+      gainNode.connect(analyser);
       analyser.connect(audioContext.destination);
       source.connect(filters[0]);
+
       log("Connexion avec filtres appliqués.");
+    } else {
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      log("Connexion en mode normal.");
     }
 
     source.start();
