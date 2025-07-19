@@ -31,6 +31,7 @@
       padding: 10px 20px;
       font-size: 16px;
       margin-right: 10px;
+      margin-top: 10px;
     }
     select {
       font-size: 16px;
@@ -72,9 +73,9 @@
 
 <label for="audioSelector">Choisissez un extrait sonore :</label>
 <select id="audioSelector" onchange="changeAudio(this.value)">
-  <option value="https://cdn.pixabay.com/audio/2023/03/23/audio_1c1de35a8b.mp3">Voix de femme - calme</option>
-  <option value="https://cdn.pixabay.com/audio/2023/03/26/audio_7f3e18f897.mp3">Voix de femme - restaurant</option>
-  <option value="https://cdn.pixabay.com/audio/2023/03/21/audio_93322c0d47.mp3">Voix d'enfant - calme</option>
+  <option value="https://upload.wikimedia.org/wikipedia/commons/2/24/Voice_example.ogg">Voix de femme - calme (Wikimedia)</option>
+  <option value="https://upload.wikimedia.org/wikipedia/commons/4/4e/Restaurant_ambience.ogg">Voix dans un restaurant</option>
+  <option value="https://upload.wikimedia.org/wikipedia/commons/b/b0/Child_singing.ogg">Voix d'enfant - calme</option>
 </select><br>
 
 <button onclick="initAndPlay('normal')">Écoute normale</button>
@@ -146,4 +147,3 @@ async function initAndPlay(mode) {
 
 </body>
 </html>
-
